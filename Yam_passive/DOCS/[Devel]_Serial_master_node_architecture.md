@@ -54,7 +54,7 @@
 ## Implementation Deviations
 | Spec | Actual | Reason |
 |------|--------|--------|
-| SPI Mode | MODE0 (not MODE1) | MODE0 works with MT6701 hardware |
+| SPI Mode | MODE1 (CPOL=0, CPHA=1) | MODE1 required for MT6701 hardware (see DEBUG_FIXES.md) |
 | Folder names | `seed_node/`, `teensy_master/` | Existing project structure |
 | scheduler.h | Not separate module | Cooperative loop sufficient for V1 |
 
@@ -104,7 +104,7 @@
 | Master UART | UART0: TX=D6 (GPIO0), RX=D7 (GPIO1) |
 | MT6701 SPI | SCK=D8 (GPIO2), MISO=D9 (GPIO4), CS=D5 (GPIO7) |
 | SPI Clock | 1 MHz |
-| SPI Mode | MODE0 (CPOL=0, CPHA=0) - verified working |
+| SPI Mode | MODE1 (CPOL=0, CPHA=1) - verified working (see DEBUG_FIXES.md) |
 
 ### Encoder: MT6701
 | Parameter | Value |

@@ -12,13 +12,13 @@
 
 #include <stdint.h>
 
-constexpr uint8_t MAX_NODES = 6;
+constexpr uint8_t MAX_NODES = 7;
 
 //=============================================================================
 // Per-Node State
 //=============================================================================
 struct NodeState {
-    uint8_t  node_id;                    // 1-6
+    uint8_t  node_id;                    // 1-7
     bool     present;                    // discovered and responding
 
     // Sample data (updated at 100 Hz)

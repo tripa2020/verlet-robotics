@@ -79,8 +79,8 @@ public:
 private:
     HardwareSerial* getPortForNode(uint8_t node_id);
 
-    HardwareSerial* m_ports[6] = {nullptr};
-    uint8_t         m_node_ids[6] = {0};
+    HardwareSerial* m_ports[7] = {nullptr};
+    uint8_t         m_node_ids[7] = {0};
     uint8_t         m_num_nodes = 0;
     uint32_t        m_baud = 115200;
 };
