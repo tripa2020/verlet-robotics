@@ -245,9 +245,10 @@ def main():
 
         print("Waiting for encoder data to capture zero position...")
 
-        # Joint angle state (initialize to zeros for 6 joints)
-        joint_angles = [0.0] * 6
-        zero_offsets = [None] * 6  # Captured at startup
+        # Joint angle state (match number of URDF joints)
+        n_joints = len(viewer.joint_indices)
+        joint_angles = [0.0] * n_joints
+        zero_offsets = [None] * n_joints  # Captured at startup
         frame_count = 0
         zeroed = False
 
@@ -263,7 +264,7 @@ def main():
                     for node in data['nodes']:
                         # Map node ID (1-based) to joint index (0-based)
                         joint_idx = node['id'] - 1
-                        if joint_idx < 6:
+                        if joint_idx < n_joints:
                             raw_angle = node['angle_rad']
 
                             # Capture zero offset on first valid reading
@@ -274,14 +275,14 @@ def main():
                             # Apply relative angle (subtract zero offset)
                             joint_angles[joint_idx] = raw_angle - zero_offsets[joint_idx]
 
-                    # Check if all active nodes are zeroed
-                    if not zeroed and all(o is not None for o in zero_offsets[:2]):
+                    # Check if all joints are zeroed
+                    if not zeroed and all(o is not None for o in zero_offsets):
                         zeroed = True
-                        print("\nZero captured. Move encoders to see motion. (Ctrl+C to stop)\n")
+                        print(f"\nAll {n_joints} joints zeroed. Move encoders to see motion. (Ctrl+C to stop)\n")
 
                     # Print status occasionally
                     if frame_count % 100 == 0:
-                        angles_str = ' '.join(f'{a:+.2f}' for a in joint_angles[:2])
+                        angles_str = ' '.join(f'{a:+.2f}' for a in joint_angles)
                         print(f"Frame {frame_count}: delta [{angles_str}]")
 
                 # Update PyBullet
