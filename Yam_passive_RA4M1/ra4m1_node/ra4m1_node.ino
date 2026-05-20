@@ -196,29 +196,89 @@ void loop() {
         sampleEncoder(now_us);
     }
 
-    // LED heartbeat (blink at 1 Hz)
+    // Track last CAN RX for LED status (must be before LED block)
+    static uint32_t last_can_rx_time = 0;
+
+    // LED heartbeat: fast (200ms) = CAN connected, slow (1s) = not connected
     static uint32_t last_blink = 0;
-    if (millis() - last_blink >= 500) {
+    bool can_connected = (millis() - last_can_rx_time < 1000);
+    uint32_t blink_period = can_connected ? 200 : 1000;
+
+    if (millis() - last_blink >= blink_period) {
         last_blink = millis();
         digitalWrite(LED_PIN, !digitalRead(LED_PIN));
     }
 
     // CAN RX handling
-    while (CAN.available()) {
+    size_t avail = CAN.available();
+
+    // Debug: print available count every second (even if 0)
+    #if DEBUG_ENABLED
+    static uint32_t last_can_debug = 0;
+    if (millis() - last_can_debug >= 1000) {
+        last_can_debug = millis();
+        Serial.print("CAN.available()=");
+        Serial.println(avail);
+    }
+    #endif
+
+    while (avail > 0) {
         CanMsg const msg = CAN.read();
+        avail--;
 
         if (msg.id == CAN_ID_SYNC) {
             // SYNC received — trigger immediate sample
             sync_rx_count++;
+            last_can_rx_time = millis();  // Track for LED status
             sampleEncoder(now_us);
-            digitalWrite(LED_PIN, !digitalRead(LED_PIN));  // Toggle on SYNC
         }
         else if (msg.id == CAN_ID_POLL_SAMPLE) {
             // POLL received — set flag for TX (M4)
             poll_rx_count++;
+            last_can_rx_time = millis();  // Track for LED status
             poll_pending = true;
+        }
+        else if (msg.id == CAN_ID_INIT) {
+            // M7: INIT received — respond immediately with SAMPLE_REPLY
+            // This allows master to discover which nodes are connected
+            last_can_rx_time = millis();  // Track for LED status
+            poll_pending = true;
+            #if DEBUG_ENABLED
+            Serial.println("INIT received - responding");
+            #endif
         }
     }
 
-    // TODO (Milestone 4): CAN TX for SAMPLE_REPLY when poll_pending
+    // M4: CAN TX for SAMPLE_REPLY when poll_pending
+    if (poll_pending) {
+        poll_pending = false;
+
+        // Build status byte
+        uint8_t status = 0;
+        if (filter_initialized && consecutive_fail < SENSOR_DEGRADED_THRESHOLD) {
+            status |= STATUS_VALID;
+        }
+        if (consecutive_fail > 0) {
+            status |= STATUS_CRC_ERROR;
+        }
+
+        // Encode angle and velocity
+        uint16_t angle_raw = encodeAngle(angle_filtered_rad);
+        int16_t vel_raw = encodeVelocity(velocity_rad_s);
+
+        // Build 8-byte payload
+        uint8_t data[8];
+        data[0] = angle_raw & 0xFF;
+        data[1] = (angle_raw >> 8) & 0xFF;
+        data[2] = vel_raw & 0xFF;
+        data[3] = (vel_raw >> 8) & 0xFF;
+        data[4] = 0;  // reserved (accel LSB)
+        data[5] = 0;  // reserved (accel MSB)
+        data[6] = status;
+        data[7] = 0;  // reserved
+
+        // Send SAMPLE_REPLY
+        CanMsg reply(CanStandardId(CAN_ID_SAMPLE_BASE + NODE_ID), 8, data);
+        CAN.write(reply);  // Non-blocking; M5 tracks missing replies
+    }
 }

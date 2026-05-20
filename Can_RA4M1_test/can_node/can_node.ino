@@ -46,10 +46,45 @@ void setup() {
 
 static uint32_t g_rx_count = 0;
 static uint32_t g_tx_fail_count = 0;
+static uint32_t g_tx_ok_count = 0;
 static uint32_t g_last_rx_count = 0;
 static uint32_t g_last_print = 0;
+static uint32_t g_heartbeat_seq = 0;
+
+// Heartbeat frame ID (distinct from ACK)
+constexpr uint32_t CAN_ID_HEARTBEAT = 0x300;
 
 void loop() {
+    // TX Heartbeat every 1 second (independent of RX - tests TX path)
+    static uint32_t last_heartbeat = 0;
+    if (millis() - last_heartbeat >= 1000) {
+        last_heartbeat = millis();
+        g_heartbeat_seq++;
+
+        uint8_t hb_data[4];
+        hb_data[0] = NODE_ID;
+        hb_data[1] = (g_heartbeat_seq >> 0) & 0xFF;
+        hb_data[2] = (g_heartbeat_seq >> 8) & 0xFF;
+        hb_data[3] = 0xAA;  // Magic byte
+
+        CanMsg hb(CanStandardId(CAN_ID_HEARTBEAT + NODE_ID), 4, hb_data);
+        int rc = CAN.write(hb);
+
+        if (rc >= 0) {
+            g_tx_ok_count++;
+            Serial.print("[TX_HB #");
+            Serial.print(g_heartbeat_seq);
+            Serial.println(" OK]");
+        } else {
+            g_tx_fail_count++;
+            Serial.print("[TX_HB #");
+            Serial.print(g_heartbeat_seq);
+            Serial.print(" FAIL rc=");
+            Serial.print(rc);
+            Serial.println("]");
+        }
+    }
+
     // Stats print every 1 second
     if (millis() - g_last_print >= 1000) {
         g_last_print = millis();
@@ -58,6 +93,8 @@ void loop() {
         Serial.print(period_rx);
         Serial.print("/sec  Total: ");
         Serial.print(g_rx_count);
+        Serial.print("  TX_OK: ");
+        Serial.print(g_tx_ok_count);
         if (g_tx_fail_count > 0) {
             Serial.print("  TX_FAIL: ");
             Serial.print(g_tx_fail_count);

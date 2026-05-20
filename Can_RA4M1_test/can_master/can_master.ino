@@ -30,6 +30,10 @@ static uint32_t g_ack_count[NUM_NODES] = {0};
 static uint32_t g_last_poll_count = 0;
 static uint32_t g_last_ack_count = 0;
 
+// Heartbeat RX tracking (tests RA4M1 TX path)
+constexpr uint32_t CAN_ID_HEARTBEAT_BASE = 0x300;
+static uint32_t g_heartbeat_rx_count = 0;
+
 void setup() {
     Serial.begin(115200);
     while (!Serial && millis() < 3000);
@@ -67,12 +71,19 @@ void loop() {
         while (micros() < deadline) {
             CAN_message_t msg;
             if (can2.read(msg)) {
+                // Check for ACK
                 for (uint8_t i = 0; i < NUM_NODES; i++) {
                     if (msg.id == CAN_ID_ACK_BASE + NODE_IDS[i] &&
                         msg.buf[0] == g_seq) {
                         received[i] = true;
                         g_ack_count[i]++;
                     }
+                }
+                // Check for heartbeat (0x301 for node 1)
+                if (msg.id >= CAN_ID_HEARTBEAT_BASE && msg.id < CAN_ID_HEARTBEAT_BASE + 8) {
+                    g_heartbeat_rx_count++;
+                    Serial.printf("[HB_RX id=0x%X seq=%u]\n", msg.id,
+                        msg.buf[1] | (msg.buf[2] << 8));
                 }
             }
         }
@@ -92,8 +103,8 @@ void loop() {
         uint32_t period_acks = g_ack_count[0] - g_last_ack_count;
         uint32_t period_miss = period_polls - period_acks;
 
-        Serial.printf("N1: %lu/%lu (%lu miss)\n",
-            period_acks, period_polls, period_miss);
+        Serial.printf("N1: %lu/%lu (%lu miss) | HB_RX: %lu\n",
+            period_acks, period_polls, period_miss, g_heartbeat_rx_count);
 
         g_last_poll_count = g_poll_count;
         g_last_ack_count = g_ack_count[0];

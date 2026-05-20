@@ -34,6 +34,26 @@ static uint32_t poll_tx_count = 0;
 static uint32_t tx_errors = 0;
 
 //=============================================================================
+// Node Discovery State (M7)
+//=============================================================================
+static uint8_t g_active_nodes = 0;      // Bitmask of discovered nodes (bit 0 = node 1)
+static uint8_t g_num_active = 0;        // Count of active nodes
+
+//=============================================================================
+// Node Sample Storage (M5)
+//=============================================================================
+struct NodeSample {
+    float angle_rad;
+    float velocity_rad_s;
+    uint8_t status;
+    bool received;        // Set each poll cycle
+    bool active;          // Node responded to discovery (M7)
+    uint32_t rx_count;    // Lifetime RX count
+    uint32_t miss_count;  // Lifetime miss count
+};
+static NodeSample g_nodes[NUM_NODES];
+
+//=============================================================================
 // Transmit SYNC Frame (ID 0x000, DLC 0)
 //=============================================================================
 static bool txSync() {
@@ -68,6 +88,66 @@ static bool txPollSample() {
 }
 
 //=============================================================================
+// Transmit INIT Frame (ID 0x010, DLC 1) — M7
+//=============================================================================
+static bool txInit() {
+    CAN_message_t msg;
+    msg.id = CAN_ID_INIT;
+    msg.len = FRAME_SIZE_INIT;
+    msg.flags.extended = 0;
+    msg.buf[0] = INIT_FLAG_ENABLE;
+
+    return can2.write(msg);
+}
+
+//=============================================================================
+// Node Discovery — M7
+// Sends INIT, waits for SAMPLE_REPLY from any node
+//=============================================================================
+static void discoverNodes() {
+    Serial.println("Discovering nodes...");
+
+    // Clear active flags
+    g_active_nodes = 0;
+    g_num_active = 0;
+    for (uint8_t i = 0; i < NUM_NODES; i++) {
+        g_nodes[i].active = false;
+    }
+
+    // Send multiple INIT frames to ensure reception
+    for (int attempt = 0; attempt < 3; attempt++) {
+        txInit();
+        delay(50);  // Give nodes time to respond
+
+        // Collect responses
+        uint32_t deadline = millis() + 100;
+        while (millis() < deadline) {
+            CAN_message_t msg;
+            if (can2.read(msg)) {
+                // Check for SAMPLE_REPLY (nodes respond with their sample frame)
+                if (msg.id >= CAN_ID_SAMPLE_BASE + 1 && msg.id <= CAN_ID_SAMPLE_BASE + NUM_NODES) {
+                    uint8_t node_id = msg.id - CAN_ID_SAMPLE_BASE;  // 1-7
+                    uint8_t node_idx = node_id - 1;  // 0-indexed
+
+                    if (node_idx < NUM_NODES && !g_nodes[node_idx].active) {
+                        g_nodes[node_idx].active = true;
+                        g_active_nodes |= (1 << node_idx);
+                        g_num_active++;
+                        Serial.printf("  Found node %d (ID 0x%03X)\n", node_id, msg.id);
+                    }
+                }
+            }
+        }
+    }
+
+    Serial.printf("Discovery complete: %d node(s) found\n", g_num_active);
+    if (g_num_active == 0) {
+        Serial.println("WARNING: No nodes detected!");
+    }
+    Serial.println();
+}
+
+//=============================================================================
 // Setup
 //=============================================================================
 void setup() {
@@ -92,7 +172,11 @@ void setup() {
     Serial.println(" Hz");
     Serial.println("CAN2 initialized on pins 0 (RX), 1 (TX)");
     Serial.println();
-    Serial.println("Setup complete. Starting poll cycle...");
+
+    // M7: Discover connected nodes
+    discoverNodes();
+
+    Serial.println("Starting poll cycle...");
     Serial.println("======================================");
     Serial.println();
 
@@ -126,25 +210,71 @@ void loop() {
         txPollSample();
 
         poll_count++;
+
+        // M5: RX SAMPLE_REPLY from nodes
+        // Clear received flags for this cycle
+        for (uint8_t i = 0; i < NUM_NODES; i++) {
+            g_nodes[i].received = false;
+        }
+
+        // Wait for responses with timeout
+        uint32_t deadline = micros() + REPLY_TIMEOUT_US;
+        while (micros() < deadline) {
+            CAN_message_t msg;
+            if (can2.read(msg)) {
+                // Check if this is a SAMPLE_REPLY (0x201-0x207)
+                if (msg.id >= CAN_ID_SAMPLE_BASE + 1 && msg.id <= CAN_ID_SAMPLE_BASE + NUM_NODES) {
+                    uint8_t node_idx = msg.id - CAN_ID_SAMPLE_BASE - 1;  // 0-indexed
+
+                    if (node_idx < NUM_NODES && msg.len >= 7) {
+                        // Decode payload
+                        uint16_t angle_raw = msg.buf[0] | (msg.buf[1] << 8);
+                        int16_t vel_raw = msg.buf[2] | (msg.buf[3] << 8);
+                        uint8_t status = msg.buf[6];
+
+                        g_nodes[node_idx].angle_rad = decodeAngle(angle_raw);
+                        g_nodes[node_idx].velocity_rad_s = decodeVelocity(vel_raw);
+                        g_nodes[node_idx].status = status;
+                        g_nodes[node_idx].received = true;
+                        g_nodes[node_idx].rx_count++;
+                    }
+                }
+            }
+        }
+
+        // Track misses (only for active nodes)
+        for (uint8_t i = 0; i < NUM_NODES; i++) {
+            if (g_nodes[i].active && !g_nodes[i].received) {
+                g_nodes[i].miss_count++;
+            }
+        }
     }
 
     // Debug output at 1 Hz
     #if DEBUG_ENABLED
     static uint32_t last_debug = 0;
+    static uint32_t last_rx_total[NUM_NODES] = {0};
+
     if (now_ms - last_debug >= DEBUG_PRINT_PERIOD_MS) {
         last_debug = now_ms;
-        Serial.print("POLL #");
-        Serial.print(poll_count);
-        Serial.print(" | SYNC_TX=");
-        Serial.print(sync_tx_count);
-        Serial.print(" | POLL_TX=");
-        Serial.print(poll_tx_count);
-        Serial.print(" | TX_ERR=");
-        Serial.println(tx_errors);
+
+        // Header line
+        Serial.printf("POLL #%lu | Nodes=%d | TX_ERR=%lu\n", poll_count, g_num_active, tx_errors);
+
+        // Per-node stats (only active nodes)
+        for (uint8_t i = 0; i < NUM_NODES; i++) {
+            if (!g_nodes[i].active) continue;
+
+            uint32_t period_rx = g_nodes[i].rx_count - last_rx_total[i];
+            last_rx_total[i] = g_nodes[i].rx_count;
+
+            Serial.printf("  N%d: %lu/100 ang=%.1f° vel=%.2f st=0x%02X\n",
+                NODE_IDS[i],
+                period_rx,
+                g_nodes[i].angle_rad * 180.0f / 3.14159f,
+                g_nodes[i].velocity_rad_s,
+                g_nodes[i].status);
+        }
     }
     #endif
-
-    // TODO (Milestone 5): CAN RX for SAMPLE_REPLY
-    // TODO (Milestone 5): Host stream TX
-    // TODO (Milestone 7): INIT command and startup sequence
 }

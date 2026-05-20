@@ -59,7 +59,7 @@ int R7FA4M1_CAN::enableInternalLoopback()
 
 ---
 
-## Bug #2: RX Callback Not Implemented
+## Bug #2: RX Callback Not Implemented — FIXED
 
 **File:** `R7FA4M1_CAN.cpp:279`
 
@@ -72,8 +72,49 @@ case CAN_EVENT_RX_COMPLETE: // Currently driver don't support this. This is unre
 - The `available()` method relies on `_can_rx_buf.available()` which gets populated by this callback
 - If RX callbacks never fire, `available()` always returns 0
 
-**Potential Cause:**
-The FSP r_can driver for RA4M1 may require explicit mailbox polling via `R_CAN_Read()` instead of relying on interrupts for receive. The library may not be implementing this correctly.
+**Root Cause:**
+The FSP r_can driver for RA4M1 never fires RX_COMPLETE callbacks. The R7FA6M5 (CANFD) variant works because it manually polls hardware via `R_CANFD_InfoGet()` + `R_CANFD_Read()` inside `available()`. The R7FA4M1 variant lacks this polling.
+
+### Fix Applied (2026-05-01)
+
+**Patched file:** `~/.arduino15/packages/Seeeduino/hardware/renesas_uno/1.2.0/libraries/Arduino_CAN/src/R7FA4M1_CAN.cpp`
+
+**Location:** `available()` method (around line 264)
+
+**Patch:** Added manual mailbox polling to check hardware RX mailboxes (indices 16-31) before returning buffer count.
+
+```cpp
+size_t R7FA4M1_CAN::available()
+{
+  /* PATCH: Manual polling for RX mailboxes.
+   * The FSP CAN driver doesn't fire RX_COMPLETE callbacks, so we must poll.
+   * RX mailboxes are indices 16-31 (groups 4-7).
+   */
+  can_info_t can_info;
+  if (fsp_err_t const rc = R_CAN_InfoGet(&_can_ctrl, &can_info); rc == FSP_SUCCESS)
+  {
+    for (uint32_t mb = 16; mb < 32; mb++)
+    {
+      if (can_info.rx_mb_status & (1UL << mb))
+      {
+        can_frame_t frame;
+        if (fsp_err_t const rc2 = R_CAN_Read(&_can_ctrl, mb, &frame); rc2 == FSP_SUCCESS)
+        {
+          uint8_t const data_len = (frame.data_length_code <= CAN_DATA_BUFFER_LENGTH)
+                                     ? frame.data_length_code : CAN_DATA_BUFFER_LENGTH;
+          CanMsg const msg(
+            (frame.id_mode == CAN_ID_MODE_STANDARD) ? CanStandardId(frame.id) : CanExtendedId(frame.id),
+            data_len, frame.data);
+          _can_rx_buf.enqueue(msg);
+        }
+      }
+    }
+  }
+  return _can_rx_buf.available();
+}
+```
+
+**Warning:** This patch will be overwritten if the Seeeduino board package updates. Re-apply after any board package update.
 
 ---
 
@@ -177,12 +218,24 @@ Serial.printf("Status: 0x%08X, RXMB: 0x%08X, Err: 0x%08X\n",
 
 ## Hardware Checklist
 
-- [ ] CAN Pal (TJA1051) connected to D9 (RX) and D10 (TX)
-- [ ] CAN_H and CAN_L wires connected between Teensy and XIAO
-- [ ] 120Ω termination resistors at both ends of bus
-- [ ] Common ground between all devices
-- [ ] 3.3V power to TJA1051 from XIAO 3V3 pin
-- [ ] Baud rate matches: 1 Mbps on both sides
+- [x] CAN Pal (TJA1051) connected to D17 (RX) and D18 (TX) on XIAO
+- [x] CAN_H and CAN_L wires connected between Teensy and XIAO
+- [x] 120Ω termination resistors at both ends of bus
+- [x] Common ground between all devices
+- [x] 3.3V power to TJA1051 from XIAO 3V3 pin
+- [x] Baud rate matches: 1 Mbps on both sides
+
+---
+
+## Physical Layer Fix (2026-05-01)
+
+**Problem:** CAN TX from RA4M1 failed with -60003 (no ACK received). Teensy received no frames.
+
+**Root Cause:** The CAN Pal PCB screw terminals had poor/no contact.
+
+**Fix:** Bypassed the CAN Pal screw terminals — wired CAN_H/CAN_L directly between the two CAN Pal boards (solder or jumper wire to CAN Pal pads, not through the terminal block).
+
+**Result:** Bidirectional CAN communication working at 100 Hz with 0 missed frames.
 
 ---
 
