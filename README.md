@@ -76,17 +76,31 @@ Verlet_Robotics/
 
 ### Protocol Library Setup
 
-The `shared/` directory is an Arduino library used by both node and master firmware. Symlink it into your Arduino libraries folder:
+The `shared/` directory is an Arduino library used by both node and master firmware. Add it to your Arduino libraries folder:
 
+**Linux/macOS** (symlink):
 ```bash
 ln -s $(pwd)/Yam_passive/shared ~/Arduino/libraries/YamProtocol
 ```
+
+**Windows** (PowerShell copy):
+```powershell
+$dest = "$env:USERPROFILE\Documents\Arduino\libraries\YamProtocol"
+New-Item -ItemType Directory -Force -Path $dest
+Copy-Item "Yam_passive\shared\*" $dest -Recurse
+```
+
+After installing, restart Arduino IDE so it picks up the new library.
 
 ### Flashing
 
 1. Flash each XIAO RP2040 with `Yam_passive/seed_node/` (set `NODE_ID` in `config.h` per joint, 1–7)
 2. Flash the Teensy 4.1 with `Yam_passive/teensy_master/`
-3. Run `python Yam_passive/host_receiver/host_receiver.py` to see streaming data
+3. Run the host receiver to see streaming data:
+   - **Linux:**   `python Yam_passive/host_receiver/host_receiver.py --port /dev/ttyUSB0`
+   - **Windows:** `python Yam_passive/host_receiver/host_receiver.py --port COM3`
+   
+   Replace the port with the one shown for your FTDI adapter in Device Manager (Windows) or `/dev/ttyUSB*` (Linux).
 
 See [Yam_passive/DOCS/](Yam_passive/DOCS/) for full instructions.
 
