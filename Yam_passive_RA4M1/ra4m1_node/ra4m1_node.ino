@@ -107,23 +107,17 @@ static void sampleEncoder(uint32_t now_us) {
 
     sample_count++;
 
-    // Debug output at 1 Hz
+    // Debug output at 1 Hz (encoder stats)
     #if DEBUG_ENABLED
     static uint32_t last_debug_ms = 0;
     if (millis() - last_debug_ms >= 1000) {
         last_debug_ms = millis();
-        Serial.print("N");
-        Serial.print(NODE_ID);
-        Serial.print(" | SYNC=");
-        Serial.print(sync_rx_count);
-        Serial.print(" | POLL=");
-        Serial.print(poll_rx_count);
-        Serial.print(" | ang=");
-        Serial.print(angle_filtered_rad * 180.0f / PI, 1);
-        Serial.print("° | vel=");
-        Serial.print(velocity_rad_s, 2);
-        Serial.print(" rad/s | crc_err=");
-        Serial.println(total_crc_errors);
+        DBG.print("[ENC] ang=");
+        DBG.print(angle_filtered_rad * 180.0f / PI, 1);
+        DBG.print("° vel=");
+        DBG.print(velocity_rad_s, 2);
+        DBG.print(" rad/s crc_err=");
+        DBG.println(total_crc_errors);
     }
     #endif
 }
@@ -132,47 +126,56 @@ static void sampleEncoder(uint32_t now_us) {
 // Setup
 //=============================================================================
 void setup() {
-    // USB serial for debug output
-    Serial.begin(115200);
-    while (!Serial && millis() < 3000);
-
-    // Status LED
+    // Status LED first (diagnostic feedback)
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, HIGH);
 
-    // Initialize MT6701 SPI
-    mt6701_init();
+    // Debug serial (USB or FTDI via Serial1/Serial2)
+    DBG.begin(DBG_BAUD);
+    #if DEBUG_SERIAL_PORT == 0
+    while (!DBG && millis() < 500);  // Short wait for USB only
+    #else
+    delay(100);  // Brief delay for FTDI
+    #endif
 
-    // Initialize CAN bus
+    DBG.println();
+    DBG.println("=== XIAO RA4M1 CAN Encoder Node ===");
+    DBG.print("[BOOT] Node ID: ");
+    DBG.println(NODE_ID);
+    DBG.print("[BOOT] Debug via ");
+    DBG.println(DBG_PINS);
+
+    // Phase 1: SPI init
+    DBG.print("[INIT] SPI... ");
+    mt6701_init();
+    DBG.println("OK");
+
+    // Phase 2: CAN init
+    DBG.print("[INIT] CAN @ 1Mbps... ");
     if (!CAN.begin(CanBitRate::BR_1000k)) {
-        Serial.println("CAN.begin FAILED!");
+        DBG.println("FAILED!");
+        DBG.println("[FATAL] CAN.begin() returned false");
+        // Very fast blink = CAN init failed
         while (1) {
             digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-            delay(100);  // Fast blink = CAN init failed
+            delay(50);
         }
     }
+    DBG.println("OK");
 
-    // Print startup info
-    Serial.println();
-    Serial.println("=== XIAO RA4M1 CAN Encoder Node ===");
-    Serial.print("Node ID: ");
-    Serial.println(NODE_ID);
-    Serial.print("Sample rate: ");
-    Serial.print(1000000 / SAMPLE_PERIOD_US);
-    Serial.println(" Hz");
-    Serial.print("EMA alpha: ");
-    Serial.println(EMA_ALPHA);
-    Serial.print("SPI pins: CS=D");
-    Serial.print(SPI_CS_PIN);
-    Serial.print(", SCK=D");
-    Serial.print(SPI_SCK_PIN);
-    Serial.print(", MISO=D");
-    Serial.println(SPI_MISO_PIN);
-    Serial.println("CAN: 1 Mbps on D17 (RX), D18 (TX)");
-    Serial.println();
-    Serial.println("Setup complete. Waiting for SYNC...");
-    Serial.println("====================================");
-    Serial.println();
+    // Phase 3: Summary
+    DBG.println("[INIT] All peripherals initialized");
+    DBG.print("[CFG] SPI: CS=D");
+    DBG.print(SPI_CS_PIN);
+    DBG.print(", SCK=D");
+    DBG.print(SPI_SCK_PIN);
+    DBG.print(", MISO=D");
+    DBG.println(SPI_MISO_PIN);
+    DBG.println("[CFG] CAN: D17(RX), D18(TX)");
+    DBG.println();
+    DBG.println("[RUN] Waiting for CAN frames...");
+    DBG.println("=====================================");
+    DBG.println();
 
     // Initialize timing
     last_sample_us = micros();
@@ -212,13 +215,21 @@ void loop() {
     // CAN RX handling
     size_t avail = CAN.available();
 
-    // Debug: print available count every second (even if 0)
+    // Debug: structured status every second
     #if DEBUG_ENABLED
     static uint32_t last_can_debug = 0;
     if (millis() - last_can_debug >= 1000) {
         last_can_debug = millis();
-        Serial.print("CAN.available()=");
-        Serial.println(avail);
+        DBG.print("[STAT] SYNC=");
+        DBG.print(sync_rx_count);
+        DBG.print(" POLL=");
+        DBG.print(poll_rx_count);
+        DBG.print(" ang=");
+        DBG.print(angle_filtered_rad * 180.0f / PI, 1);
+        DBG.print("° CAN_avail=");
+        DBG.print(avail);
+        DBG.print(" connected=");
+        DBG.println(can_connected ? "YES" : "NO");
     }
     #endif
 
@@ -244,7 +255,7 @@ void loop() {
             last_can_rx_time = millis();  // Track for LED status
             poll_pending = true;
             #if DEBUG_ENABLED
-            Serial.println("INIT received - responding");
+            DBG.println("[RX] INIT received - responding");
             #endif
         }
     }

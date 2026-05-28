@@ -239,6 +239,22 @@ Serial.printf("Status: 0x%08X, RXMB: 0x%08X, Err: 0x%08X\n",
 
 ---
 
+## Ground Reference Issue (2026-05-20)
+
+**Symptom:** CAN works when USB or FTDI is connected to XIAO, fails when running on external power alone.
+
+**Root Cause:** Missing common ground between external power supply and CAN bus. USB/FTDI were providing the ground path through the PC.
+
+**Fix:** Ensure solid GND connection between:
+- External PSU GND
+- XIAO GND
+- CAN Pal GND (both sides)
+- Teensy GND
+
+**Lesson:** CAN differential signaling still requires a common ground reference. Always verify ground continuity when debugging CAN issues.
+
+---
+
 ## Relevant Source Files
 
 | File | Location | Purpose |

@@ -12,7 +12,7 @@
 //=============================================================================
 // Node Identity — CHANGE THIS FOR EACH NODE
 //=============================================================================
-#define NODE_ID     1      // 1-7, unique per node
+#define NODE_ID     2      // 1-7, unique per node
 
 //=============================================================================
 // MT6701 SPI Configuration
@@ -52,6 +52,22 @@
 //=============================================================================
 #define DEBUG_ENABLED           true
 #define DEBUG_SAMPLE_INTERVAL   500     // Print every N samples (500 = 1 Hz at 500 Hz)
+
+// Debug serial port selection:
+//   0 = USB Serial (default, requires USB connection)
+//   1 = Serial1 on D6(TX)/D7(RX) for FTDI debugging without USB
+// Note: XIAO RA4M1 only has Serial and Serial1 (no Serial2)
+#define DEBUG_SERIAL_PORT       1
+
+#if DEBUG_SERIAL_PORT == 1
+    #define DBG Serial1
+    #define DBG_BAUD 115200
+    #define DBG_PINS "D6(TX)/D7(RX)"
+#else
+    #define DBG Serial
+    #define DBG_BAUD 115200
+    #define DBG_PINS "USB"
+#endif
 
 //=============================================================================
 // MT6701 Constants
