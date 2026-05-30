@@ -6,7 +6,12 @@ Receives and decodes binary frames from Teensy master via FTDI/Serial8.
 Displays real-time encoder data from all nodes.
 
 Usage:
-    python host_receiver.py [--port /dev/ttyUSB0] [--baud 115200] [--log data.csv]
+    Linux:   python host_receiver.py [--port /dev/ttyUSB0] [--baud 115200] [--log data.csv]
+    Windows: python host_receiver.py [--port COM3]         [--baud 115200] [--log data.csv]
+
+    Find the correct port:
+      Linux:   ls /dev/ttyUSB* or ls /dev/ttyACM*
+      Windows: check Device Manager under "Ports (COM & LPT)"
 
 Frame Format (27 bytes for 2 nodes):
     START(1) + TIMESTAMP(4) + N_NODES(1) + NODE_DATA(10*N) + CRC(1)
@@ -18,6 +23,7 @@ Ref: Serial_master_node_architecture.md Section 3.6
 """
 
 import argparse
+import platform
 import struct
 import sys
 import time
@@ -148,9 +154,10 @@ def read_frame(ser: serial.Serial, timeout: float = 0.1) -> bytes:
 
 
 def main():
+    default_port = 'COM3' if platform.system() == 'Windows' else '/dev/ttyUSB0'
     parser = argparse.ArgumentParser(description='MT6701 Encoder Network Host Receiver')
-    parser.add_argument('--port', '-p', default='/dev/ttyUSB0',
-                        help='Serial port (default: /dev/ttyUSB0)')
+    parser.add_argument('--port', '-p', default=default_port,
+                        help=f'Serial port (default: {default_port})')
     parser.add_argument('--baud', '-b', type=int, default=115200,
                         help='Baud rate (default: 115200)')
     parser.add_argument('--log', '-l', type=str, default=None,
