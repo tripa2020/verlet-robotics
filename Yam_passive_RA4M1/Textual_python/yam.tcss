@@ -1,0 +1,16 @@
+Screen { background: $surface; }
+
+Header { dock: top; }
+Footer { dock: bottom; }
+
+#bus    { height: 12; }
+#nodes  { height: 14; }
+#events { height: 1fr; }
+
+#status {
+    dock: bottom;
+    height: 1;
+    background: $boost;
+    color: $text;
+    padding: 0 1;
+}
