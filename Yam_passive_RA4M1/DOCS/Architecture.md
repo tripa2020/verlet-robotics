@@ -370,11 +370,14 @@ Main Loop:
 
 | File | Responsibility |
 |------|----------------|
-| `teensy_master.ino` | Main loop, scheduler |
-| `config.h` | CAN IDs, timing, node list |
-| `system_state.h/.cpp` | NodeState array, accessors |
-| `can_master.h/.cpp` | CAN TX/RX, frame parsers |
-| `host_stream.h/.cpp` | Host frame builder, USB TX |
+| `teensy_master.ino` | Main loop, scheduler, CAN TX/RX, telemetry emission |
+| `config.h` | CAN IDs, timing, node list, telemetry knobs |
+| `debug_log.h/.cpp` | Severity/class enums, level gating, EVT emitter, throttle table (M8) |
+| `node_state.h/.cpp` | NodeTelemetry struct + UNSEEN→DISCOVERED→ONLINE→MISSING→OFFLINE machine (M8) |
+| `host_control.h/.cpp` | USB command parser: SET/RESET/PING/DUMP, ACK/NAK (M8) |
+| `system_state.h` | NodeState array typedefs — **stub, not yet included by .ino** |
+| `can_master.h` | CAN TX/RX frame parsers — **stub, TX/RX currently inlined in .ino** |
+| `host_stream.h` | Host binary frame builder — **stub, Milestone 5 (not implemented)** |
 
 **Shared (shared/):**
 

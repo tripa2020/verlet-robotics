@@ -101,21 +101,21 @@ Each node lives in one of five states. Transitions drive `[INFO]`/`[WARN]`/`[ERR
                      │ first valid SAMPLE_REPLY
                      ▼
                 ┌──────────┐
-                │DISCOVERED│  first reply seen
-                └────┬─────┘
-                     │ 10 consecutive cycles received
-                     ▼
-                ┌──────────┐         miss_count >= 3
-                │  ONLINE  │ ────────────────────────┐
-                └──────────┘                         │
-                     ▲                               ▼
+                │DISCOVERED│  first reply seen ─────────┐ miss_count >= 100
+                └────┬─────┘  (never stabilized)        │ (direct, see note)
+                     │ 10 consecutive cycles received   │
+                     ▼                                  │
+                ┌──────────┐         miss_count >= 3    │
+                │  ONLINE  │ ────────────────────────┐  │
+                └──────────┘                         │  │
+                     ▲                               ▼  │
                      │ rx OK                  ┌──────────┐
                      └────────────────────────│ MISSING  │
                                               └────┬─────┘
                                                    │ miss_count >= 100
                                                    ▼
                                               ┌──────────┐
-                                              │ OFFLINE  │
+                                              │ OFFLINE  │◄─── (from DISCOVERED)
                                               └────┬─────┘
                                                    │ valid SAMPLE_REPLY arrives
                                                    ▼
@@ -123,6 +123,13 @@ Each node lives in one of five states. Transitions drive `[INFO]`/`[WARN]`/`[ERR
                                               │DISCOVERED│  (recurrence)
                                               └──────────┘
 ```
+
+**DISCOVERED → OFFLINE (direct):** a node that replies once but never reaches the
+10-cycle stability gate would otherwise accumulate misses with nowhere to go (the
+`ONLINE → MISSING` edge is unreachable from DISCOVERED). The implementation therefore
+also drives `DISCOVERED → OFFLINE` once `miss_count >= NODE_MISS_TO_OFFLINE`, emitting
+the same `ERR/NODE` "OFFLINE" event. This keeps a flaky/one-shot node from being stuck
+in DISCOVERED forever.
 
 Events emitted on transitions:
 
@@ -132,6 +139,7 @@ Events emitted on transitions:
 | `DISCOVERED → ONLINE` | INFO | NODE | `Node N stable (ONLINE)` |
 | `ONLINE → MISSING` | WARN | NODE | `Node N: 3 consecutive misses` |
 | `MISSING → OFFLINE` | ERR | NODE | `Node N: OFFLINE — 100 consecutive misses` |
+| `DISCOVERED → OFFLINE` | ERR | NODE | `Node N: OFFLINE — 100 consecutive misses` |
 | `MISSING → ONLINE` | INFO | NODE | `Node N recovered` |
 | `OFFLINE → DISCOVERED` | INFO | NODE | `Node N reappeared` |
 
@@ -155,12 +163,12 @@ STAT t=12345 poll=1234 tec=0 rec=0 esr=0000 bus=ACTIVE sync=1234 polltx=1234 ini
 |---|---|
 | `t` | master uptime ms |
 | `poll` | poll cycle count |
-| `tec`, `rec` | CAN TX/RX error counters |
-| `esr` | ESR1 register hex |
-| `bus` | `ACTIVE` / `PASSIVE` / `BUS_OFF` |
+| `tec`, `rec` | CAN TX/RX error counters (read from FlexCAN2 ECR register directly) |
+| `esr` | ESR1 register hex. **Currently stubbed to `0000`** — FlexCAN_T4 exposes no ECR/ESR1 API; `bus` state is derived from `tec`/`rec` instead. |
+| `bus` | `ACTIVE` / `WARNING` / `PASSIVE` / `BUS_OFF` (derived from TEC/REC per CAN 2.0B) |
 | `sync`, `polltx`, `init` | TX counters (lifetime) |
 | `mbb` | TX mailbox-busy count |
-| `rxv`, `rxu`, `rxs`, `ovr` | RX valid / unknown-id / short-DLC / MB overrun (lifetime) |
+| `rxv`, `rxu`, `rxs`, `ovr` | RX valid / unknown-id / short-DLC / MB overrun (lifetime). **`ovr` not yet wired — always 0** (no MB-overrun detection in this pass). |
 | `slip`, `jit` | cycle slip count, max jitter in µs |
 
 #### NODE — 1 Hz, one line per node (always 7 lines)
@@ -200,10 +208,20 @@ Single-line ASCII commands, `\n` terminated. Master parses one command per `loop
 ```
 SET level=2          → set verbosity (0=silent, 1=events, 2=summary, 3=trace)
 RESET counters       → zero all telemetry counters
-RESET events         → clear event ring buffer
+RESET events         → clear the event-throttle table (see note below)
 PING                 → master responds with PONG t=NNN
 DUMP config          → master prints current config keys
 ```
+
+> **Implementation note — no MCU-side event ring.** The original design buffered the
+> last `EVENT_RING_SIZE` events in a ring on the master for replay. This was dropped:
+> events are emitted to USB Serial the instant they fire, and the **host TUI owns event
+> history** (`LiveState.push_event`, last 200). Consequences:
+> - `EVENT_RING_SIZE` is unused (left out of `config.h`).
+> - `RESET events` / `dbg_reset_events()` clears the **throttle table** (the
+>   `(tag, last_emit_ms)` pairs that rate-limit repeated events), so all throttled
+>   event classes can fire immediately again. It does **not** clear host-side history —
+>   the TUI clears its own list locally on the same keypress.
 
 ### 5.3 Master → Python (acknowledgments)
 
@@ -297,8 +315,8 @@ This mirrors Alex's tripp-teleop pattern: "Pure presentation — no I/O, no seri
 ### New firmware files (`teensy_master/`)
 | File | Purpose | LOC budget |
 |---|---|---|
-| `debug_log.h` | severity enum, event struct, ring API, line-emitter macros | ~40 |
-| `debug_log.cpp` | ring buffer, formatters, throttling | ~150 |
+| `debug_log.h` | severity/class enums, level get/set, line emitters, `dbg_event`, throttle API | ~40 |
+| `debug_log.cpp` | direct EVT emitter (no ring), level gating, throttle table | ~90 |
 | `node_state.h` | NodeState enum, NodeTelemetry struct, transition API | ~40 |
 | `node_state.cpp` | transition function, state-event emission | ~80 |
 | `host_control.h` | command API | ~25 |
@@ -308,7 +326,7 @@ This mirrors Alex's tripp-teleop pattern: "Pure presentation — no I/O, no seri
 | File | Change | Net LOC |
 |---|---|---|
 | `teensy_master.ino` | replace ad-hoc globals with telemetry struct; integrate node SM; instrument TX/RX; periodic INIT retry | +60 / -25 |
-| `config.h` | add `DEBUG_LEVEL`, `EVENT_RING_SIZE`, `NODE_MISS_TO_MISSING`, `NODE_STABLE_CYCLES` | +6 |
+| `config.h` | add `DEBUG_LEVEL_DEFAULT`, `NODE_STABLE_CYCLES`, `NODE_MISS_TO_MISSING`, `NODE_MISS_TO_OFFLINE`, `DEBUG_HOST_BAUD`, `HOST_CMD_LINE_MAX` (no `EVENT_RING_SIZE` — ring dropped) | +6 |
 
 ### New Python files (`Textual_python/`)
 | File | Purpose | LOC budget |
@@ -326,6 +344,12 @@ Total: ~415 LOC firmware, ~590 LOC Python. All firmware files within CLAUDE.md �
 ---
 
 # PART 2 — IMPLEMENTATION HANDOFF
+
+> **Status: IMPLEMENTED (M8 complete).** This part is the *original* step-by-step plan.
+> The code under `teensy_master/` and `Textual_python/` is now the source of truth and
+> diverges from these snippets in a few deliberate ways — see PART 1 (§4 DISCOVERED→OFFLINE,
+> §5 `esr`/`ovr` stubs, and the "no MCU-side event ring" note). Where a snippet below and
+> the shipped code disagree, **the code wins.** Kept for design rationale and traceability.
 
 This part is structured for a fresh Claude session. Each step is self-contained.
 
