@@ -12,7 +12,7 @@
 //=============================================================================
 // Node Identity — CHANGE THIS FOR EACH NODE
 //=============================================================================
-#define NODE_ID     2      // 1-7, unique per node
+#define NODE_ID     1      // 1-7, unique per node
 
 //=============================================================================
 // MT6701 SPI Configuration
@@ -57,7 +57,7 @@
 //   0 = USB Serial (default, requires USB connection)
 //   1 = Serial1 on D6(TX)/D7(RX) for FTDI debugging without USB
 // Note: XIAO RA4M1 only has Serial and Serial1 (no Serial2)
-#define DEBUG_SERIAL_PORT       1
+#define DEBUG_SERIAL_PORT       0
 
 #if DEBUG_SERIAL_PORT == 1
     #define DBG Serial1

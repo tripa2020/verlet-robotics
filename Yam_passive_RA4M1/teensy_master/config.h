@@ -55,6 +55,16 @@ constexpr uint16_t COMM_FAULT_THRESHOLD = 100;      // Consecutive misses → FA
 // Debug Configuration
 //=============================================================================
 #define DEBUG_ENABLED           true
-#define DEBUG_PRINT_PERIOD_MS   1000    // Print stats every 1 sec
+#define DEBUG_PRINT_PERIOD_MS   1000    // Periodic STAT/NODE emission interval
+
+//=============================================================================
+// Telemetry / wire protocol (see DOCS/Error_handling.md)
+//=============================================================================
+#define DEBUG_LEVEL_DEFAULT     2       // 0=silent  1=events  2=summary  3=trace
+#define NODE_STABLE_CYCLES      10      // DISCOVERED -> ONLINE after N consecutive RX
+#define NODE_MISS_TO_MISSING    3       // ONLINE -> MISSING after N misses
+#define NODE_MISS_TO_OFFLINE    100     // MISSING -> OFFLINE after N misses
+#define DEBUG_HOST_BAUD         115200
+#define HOST_CMD_LINE_MAX       64      // Max length of one control command line
 
 #endif // CONFIG_H
