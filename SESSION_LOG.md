@@ -41,6 +41,10 @@ See `CLAUDE.md → Session Logging` for the rules.
   - **Updated the report** (`../Design files/Joint_Node_PCB_v1_Status_Report.md`) with corrected progress + the "If we had the PCB in hand" Can / Can't / Missing / Next analysis.
   - **Added a "Session Logging (ALWAYS)" rule** to `CLAUDE.md`.
   - **Created this `SESSION_LOG.md`.**
-- **Decisions:** Report lives in `../Design files/` (alongside the PCB sources, outside the git repo) per where Alex's materials are kept. `SESSION_LOG.md` lives at the git repo root so it's version-controlled.
-- **Blockers / open:** Biggest gap for the PCB = **STM32G431 firmware does not exist** (repo firmware is Renesas RA4M1, won't port directly).
-- **Handoff / next step:** Two candidates — (A) scope **Track C: STM32G431 node firmware** (off critical path, can start before the board exists), or (B) keep advancing the PCB toward fab (placement cleanup → routing). Awaiting Philemon's pick.
+  - **Git:** committed + pushed `SESSION_LOG.md` + venv ignore to code repo (`01ae932..7a54ed6`, `github.com/tripa2020/verlet-robotics`).
+  - **Direction set:** Philemon will do the PCB/KiCad work hands-on (prefers it to coding); I'm the support crew. Track C (firmware) deferred.
+  - **Read Alex's full SI/PI guide** (`_rendered/IntegrityGuide.txt`, 65 pp) + PlacementReview + Routing end-to-end.
+  - **Created `../Design files/Joint_Node_V1_Build_Checklist.md`** — a tickable KiCad worklist (placement cleanup → route → DRC → export → PCBWay), every step grounded in Alex's rules.
+- **Decisions:** Report + checklist live in `../Design files/` (with the PCB sources, outside the git repo). `SESSION_LOG.md` lives at the code-repo root so it's version-controlled. **`CLAUDE.md` is gitignored** in the code repo — the session-logging *rule* edit won't propagate via git (flagged to Philemon).
+- **Blockers / open:** (1) **Outer repo `Verlet-Gello` has no git remote** — can't push the Design files; needs Philemon's decision (create remote / commit-local-only) + handling of ~74 MB binaries (`Vert.zip` dup, `.STEP`). (2) Biggest PCB gap = **STM32G431 firmware does not exist** (repo firmware is Renesas RA4M1).
+- **Handoff / next step:** Philemon works through `Joint_Node_V1_Build_Checklist.md` Phase 0/1 in KiCad. I can recompute HSE caps / diff-pair geometry for his exact crystal + stackup, review screenshots, or start Track C firmware in parallel. Outer-repo git decision still pending.
